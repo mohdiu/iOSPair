@@ -34,6 +34,8 @@ class App:
         self.root = root
         self.devices = []
         self.busy = False
+        # Devices already auto-paired while plugged in; cleared on unplug so a replug pairs again.
+        self.handled = set()
         self.loop = asyncio.new_event_loop()
         threading.Thread(target=self.loop.run_forever, daemon=True).start()
 
@@ -65,7 +67,7 @@ class App:
             disabledforeground="#dbeafe",
             relief="flat",
             cursor="hand2",
-            command=self.start,
+            command=lambda: self.start(),
         )
         self.button.pack(fill="x", padx=16, pady=(8, 16), ipady=10)
 
@@ -143,7 +145,7 @@ class App:
                 self.clear_extra()
                 self._itunes_shown = False
             if not devices:
-                self.device_label.config(text="وصّل الجوال بالكمبيوتر بكيبل USB", fg=MUTED)
+                self.device_label.config(text="وصّل الجوال بكيبل USB ويبدأ تلقائيًا", fg=MUTED)
             elif len(devices) == 1:
                 self.device_label.config(text=f"📱 {devices[0].title}", fg="#111")
             else:
@@ -160,6 +162,18 @@ class App:
             self.device_box.pack_forget()
 
         self._update_button()
+        self._auto_start()
+
+    def _auto_start(self):
+        connected = {d.udid for d in self.devices}
+        self.handled &= connected
+        for index, device in enumerate(self.devices):
+            if device.udid not in self.handled:
+                self.handled.add(device.udid)
+                if len(self.devices) > 1:
+                    self.device_box.current(index)
+                self.start(device)
+                return
 
     def _selected(self):
         if not self.devices:
@@ -175,8 +189,8 @@ class App:
 
     # -- pairing ------------------------------------------------------------
 
-    def start(self):
-        device = self._selected()
+    def start(self, device=None):
+        device = device or self._selected()
         if device is None or self.busy:
             return
         self.busy = True
