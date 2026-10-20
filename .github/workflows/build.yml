@@ -29,11 +29,20 @@ jobs:
           --exclude-module uvicorn --exclude-module starlette --exclude-module pydantic
           --exclude-module matplotlib --exclude-module numpy run.py
 
-      - name: Self-test frozen exe
+      - name: Test with simulated iPhone (source)
+        run: python tests/test_e2e.py
+
+      - name: Test with simulated iPhone (built exe)
         shell: pwsh
         run: |
-          $p = Start-Process dist\iOSPair.exe -ArgumentList "--selftest" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { exit 1 }
+          $env:FAKE_IPHONE_LIFETIME = "60"
+          $fake = Start-Process python -ArgumentList "tests\fake_iphone.py", "16.7.10" -PassThru -NoNewWindow
+          Start-Sleep -Seconds 3
+          $p = Start-Process dist\iOSPair.exe -ArgumentList "--selftest", "selftest-out" -Wait -PassThru
+          Stop-Process -Id $fake.Id -ErrorAction SilentlyContinue
+          $files = Get-ChildItem selftest-out -Recurse -File
+          $files | ForEach-Object { $_.Name }
+          if ($p.ExitCode -ne 0 -or $files.Count -ne 4) { exit 1 }
 
       - name: Build installer
         shell: pwsh

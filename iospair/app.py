@@ -15,18 +15,54 @@ ITUNES_URL = "https://www.apple.com/itunes/download/win64"
 
 STATUS_TEXT = {
     "connecting": "جاري الاتصال بالجوال...",
-    "unlock": "افتح قفل الجوال 🔓",
-    "trust": "اضغط «وثوق» في الجوال واكتب رمز القفل\nTrust",
-    "saving": "جاري حفظ الملف...",
+    "unlock": "افتح قفل الجوال",
+    "trust": "اضغط «وثوق» في الجوال واكتب الرمز",
+    "saving": "جاري الحفظ...",
 }
 
 BG = "#f5f6f8"
 CARD = "#ffffff"
+LINE = "#e5e7eb"
+TEXT = "#111111"
 ACCENT = "#0a84ff"
 OK = "#1f9d55"
 ERR = "#d93025"
 MUTED = "#6b7280"
 FONT = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
+
+
+def card(parent):
+    frame = tk.Frame(parent, bg=CARD, highlightbackground=LINE, highlightthickness=1)
+    frame.pack(fill="x", padx=20, pady=(0, 10))
+    frame.columnconfigure(0, weight=1)
+    return frame
+
+
+class CheckRow:
+    """One line of the check panel: text on the right, ✔ / ✖ / – icon at the far right."""
+
+    def __init__(self, parent, row):
+        self.icon = tk.Label(parent, font=(FONT, 12, "bold"), bg=CARD, width=2)
+        self.icon.grid(row=row, column=2, sticky="e", padx=(0, 10), pady=3)
+        self.text = tk.Label(parent, font=(FONT, 11), bg=CARD, anchor="e")
+        self.text.grid(row=row, column=1, sticky="e", pady=3)
+        self.action = None
+        self.parent = parent
+        self.row = row
+
+    def set(self, state, text, action=None):
+        icon, color = {"ok": ("✔", OK), "bad": ("✖", ERR), "wait": ("–", MUTED)}[state]
+        self.icon.config(text=icon, fg=color)
+        self.text.config(text=text, fg=TEXT if state == "ok" else color)
+        label = action[0] if action else None
+        if self.action is not None and self.action.cget("text") != label:
+            self.action.destroy()
+            self.action = None
+        if action and self.action is None:
+            self.action = tk.Button(
+                self.parent, text=label, font=(FONT, 9), relief="flat", bg=LINE, cursor="hand2", command=action[1]
+            )
+            self.action.grid(row=self.row, column=0, sticky="w", padx=10)
 
 
 class App:
@@ -41,25 +77,38 @@ class App:
 
         root.title(f"iOSPair {__version__}")
         root.configure(bg=BG)
-        root.geometry("460x440")
-        root.minsize(420, 400)
+        root.geometry("440x520")
+        root.minsize(400, 480)
 
-        tk.Label(root, text="iOSPair", font=(FONT, 22, "bold"), bg=BG, fg="#111").pack(pady=(22, 0))
-        tk.Label(root, text="ملف الاقتران للجوال", font=(FONT, 12), bg=BG, fg=MUTED).pack()
+        tk.Label(root, text="iOSPair", font=(FONT, 20, "bold"), bg=BG, fg=TEXT).pack(pady=(16, 10))
 
-        card = tk.Frame(root, bg=CARD, highlightbackground="#e5e7eb", highlightthickness=1)
-        card.pack(fill="x", padx=24, pady=18)
+        checks = card(root)
+        tk.Label(checks, text="الفحص", font=(FONT, 10, "bold"), bg=CARD, fg=MUTED).grid(
+            row=0, column=1, columnspan=2, sticky="e", padx=10, pady=(8, 2)
+        )
+        self.check_service = CheckRow(checks, 1)
+        self.check_device = CheckRow(checks, 2)
+        self.check_ios = CheckRow(checks, 3)
+        tk.Frame(checks, bg=CARD, height=6).grid(row=4, column=0)
 
-        self.device_label = tk.Label(card, text="", font=(FONT, 12), bg=CARD, fg="#111", wraplength=380)
-        self.device_label.pack(pady=(16, 6), padx=12)
-
-        self.device_box = ttk.Combobox(card, state="readonly", font=(FONT, 11), justify="center")
-        self.device_box.bind("<<ComboboxSelected>>", lambda _e: self._update_button())
+        self.info = tk.Frame(root, bg=CARD, highlightbackground=LINE, highlightthickness=1)
+        self.info.columnconfigure(0, weight=1)
+        self.device_box = ttk.Combobox(self.info, state="readonly", font=(FONT, 10), justify="center")
+        self.device_box.bind("<<ComboboxSelected>>", lambda _e: self._show_info())
+        self.info_rows = []
+        for row, key in enumerate(("الاسم", "الجهاز", "الإصدار", "UDID"), start=1):
+            tk.Label(self.info, text=key, font=(FONT, 10), bg=CARD, fg=MUTED, anchor="e").grid(
+                row=row, column=1, sticky="e", padx=10, pady=2
+            )
+            value = tk.Label(self.info, font=(FONT, 10, "bold"), bg=CARD, fg=TEXT, anchor="w")
+            value.grid(row=row, column=0, sticky="w", padx=10, pady=2)
+            self.info_rows.append(value)
+        tk.Frame(self.info, bg=CARD, height=4).grid(row=5, column=0)
 
         self.button = tk.Button(
-            card,
+            root,
             text="طلّع ملف الاقتران",
-            font=(FONT, 15, "bold"),
+            font=(FONT, 14, "bold"),
             bg=ACCENT,
             fg="white",
             activebackground="#0060df",
@@ -69,14 +118,15 @@ class App:
             cursor="hand2",
             command=lambda: self.start(),
         )
-        self.button.pack(fill="x", padx=16, pady=(8, 16), ipady=10)
+        self.button.pack(fill="x", padx=20, pady=(4, 8), ipady=8)
 
-        self.status = tk.Label(root, text="", font=(FONT, 12), bg=BG, fg=MUTED, wraplength=400, justify="center")
-        self.status.pack(padx=24)
+        self.status = tk.Label(root, text="", font=(FONT, 11), bg=BG, fg=MUTED, wraplength=380, justify="center")
+        self.status.pack(padx=20)
 
         self.extra = tk.Frame(root, bg=BG)
-        self.extra.pack(pady=10)
+        self.extra.pack(pady=8)
 
+        self._show_devices([], None)
         self.refresh()
 
     # -- background helpers -------------------------------------------------
@@ -109,60 +159,66 @@ class App:
 
     def _on_devices(self, future):
         try:
-            devices = future.result()
-            missing_service = False
+            devices, service_ok = future.result(), True
         except core.AppleServiceMissing:
-            devices, missing_service = [], True
+            devices, service_ok = [], False
         except Exception:
-            devices, missing_service = [], False
+            devices, service_ok = [], True
 
         if not self.busy:
-            self._show_devices(devices, missing_service)
+            self._show_devices(devices, service_ok)
         self.root.after(2000, self.refresh)
 
-    def _show_devices(self, devices, missing_service):
-        changed = [d.udid for d in devices] != [d.udid for d in self.devices] or any(
-            a.title != b.title for a, b in zip(devices, self.devices)
-        )
+    def _show_devices(self, devices, service_ok):
+        titles = [d.title for d in devices]
+        changed = titles != [d.title for d in self.devices]
         self.devices = devices
 
-        if missing_service:
-            self.device_label.config(text="لازم تثبّت iTunes أول مرة عشان الكمبيوتر يتعرف على الجوال", fg=ERR)
-            if not getattr(self, "_itunes_shown", False):
-                self.clear_extra()
-                tk.Button(
-                    self.extra,
-                    text="تحميل iTunes",
-                    font=(FONT, 11),
-                    relief="flat",
-                    bg="#e5e7eb",
-                    cursor="hand2",
-                    command=lambda: webbrowser.open(ITUNES_URL),
-                ).pack(ipadx=10, ipady=4)
-                self._itunes_shown = True
+        if service_ok is None:
+            self.check_service.set("wait", "خدمة Apple")
+        elif service_ok:
+            self.check_service.set("ok", "iTunes مثبّت")
         else:
-            if getattr(self, "_itunes_shown", False):
-                self.clear_extra()
-                self._itunes_shown = False
-            if not devices:
-                self.device_label.config(text="وصّل الجوال بكيبل USB ويبدأ تلقائيًا", fg=MUTED)
-            elif len(devices) == 1:
-                self.device_label.config(text=f"📱 {devices[0].title}", fg="#111")
-            else:
-                self.device_label.config(text="اختر الجوال", fg="#111")
+            self.check_service.set("bad", "iTunes غير مثبّت", ("تحميل", lambda: webbrowser.open(ITUNES_URL)))
+
+        if devices:
+            self.check_device.set("ok", "الجوال متصل")
+        elif service_ok:
+            self.check_device.set("bad", "وصّل الجوال بالكيبل")
+        else:
+            self.check_device.set("wait", "الجوال")
 
         if len(devices) > 1:
             if changed:
                 current = self.device_box.current()
-                self.device_box["values"] = [d.title for d in devices]
+                self.device_box["values"] = titles
                 self.device_box.current(current if 0 <= current < len(devices) else 0)
-            if not self.device_box.winfo_ismapped():
-                self.device_box.pack(fill="x", padx=16, pady=(0, 4), before=self.button)
-        elif self.device_box.winfo_ismapped():
-            self.device_box.pack_forget()
+            self.device_box.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=(8, 4))
+        else:
+            self.device_box.grid_remove()
 
-        self._update_button()
+        if devices:
+            self.info.pack(fill="x", padx=20, pady=(0, 10), before=self.button)
+        else:
+            self.info.pack_forget()
+        self._show_info()
         self._auto_start()
+
+    def _show_info(self):
+        device = self._selected()
+        if device is None:
+            self.check_ios.set("wait", "الإصدار")
+        elif device.supported:
+            self.check_ios.set("ok", "الإصدار مدعوم")
+        else:
+            self.check_ios.set("bad", "الإصدار قديم جدًا")
+
+        if device is not None:
+            udid = device.udid if len(device.udid) <= 16 else f"{device.udid[:8]}…{device.udid[-6:]}"
+            values = (device.name or "-", device.model_name, f"iOS {device.ios}" if device.ios else "-", udid)
+            for label, value in zip(self.info_rows, values):
+                label.config(text=value)
+        self._update_button()
 
     def _auto_start(self):
         connected = {d.udid for d in self.devices}
@@ -170,8 +226,11 @@ class App:
         for index, device in enumerate(self.devices):
             if device.udid not in self.handled:
                 self.handled.add(device.udid)
+                if not device.supported:
+                    continue
                 if len(self.devices) > 1:
                     self.device_box.current(index)
+                    self._show_info()
                 self.start(device)
                 return
 
@@ -184,7 +243,8 @@ class App:
         return self.devices[index] if 0 <= index < len(self.devices) else self.devices[0]
 
     def _update_button(self):
-        enabled = bool(self.devices) and not self.busy
+        device = self._selected()
+        enabled = device is not None and device.supported and not self.busy
         self.button.config(state="normal" if enabled else "disabled", bg=ACCENT if enabled else "#9cc9ff")
 
     # -- pairing ------------------------------------------------------------
@@ -208,24 +268,24 @@ class App:
         try:
             result = future.result()
         except core.UserDenied:
-            self.set_status("رفضت الاقتران في الجوال. اضغط الزر مرة ثانية واختر «وثوق».", ERR)
+            self.set_status("رفضت الاقتران. اضغط الزر واختر «وثوق».", ERR)
             return
         except core.TrustTimeout:
-            self.set_status("انتهى الوقت. اضغط الزر مرة ثانية ووافق في الجوال.", ERR)
+            self.set_status("انتهى الوقت. اضغط الزر مرة ثانية.", ERR)
             return
         except core.AppleServiceMissing:
             self.set_status("ثبّت iTunes وأعد المحاولة.", ERR)
             return
         except Exception as e:
-            self.set_status(f"صار خطأ، افصل الكيبل ووصّله وجرب مرة ثانية.\n{type(e).__name__}: {e}", ERR)
+            self.set_status(f"صار خطأ. افصل الكيبل ووصّله.\n{type(e).__name__}: {e}", ERR)
             return
 
-        self.set_status("✔ تم! الملف جاهز", OK)
+        self.set_status("✔ الملف جاهز", OK)
         self.clear_extra()
         tk.Button(
             self.extra,
             text="افتح المجلد",
-            font=(FONT, 12, "bold"),
+            font=(FONT, 11, "bold"),
             relief="flat",
             bg=OK,
             fg="white",
@@ -233,18 +293,7 @@ class App:
             activeforeground="white",
             cursor="hand2",
             command=lambda: open_folder(result.folder),
-        ).pack(ipadx=16, ipady=4)
-        apps = []
-        for _path, app in result.files:
-            if app not in apps:
-                apps.append(app)
-        tk.Label(
-            self.extra,
-            text="\n".join(apps),
-            font=(FONT, 9),
-            bg=BG,
-            fg=MUTED,
-        ).pack(pady=(8, 0))
+        ).pack(ipadx=16, ipady=3)
         open_folder(result.folder)
 
 

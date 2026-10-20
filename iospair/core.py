@@ -19,6 +19,7 @@ from typing import Callable, Optional
 
 from pymobiledevice3 import usbmux
 from pymobiledevice3.ca import generate_pairing_cert_chain
+from pymobiledevice3.irecv_devices import IRECV_DEVICES
 from pymobiledevice3.exceptions import (
     ConnectionFailedToUsbmuxdError,
     PairingDialogResponsePendingError,
@@ -32,6 +33,7 @@ from pymobiledevice3.service_connection import ServiceConnection
 LOCKDOWN_PORT = 62078
 LABEL = "iOSPair"
 TRUST_TIMEOUT = 180  # seconds to wait for the user to tap "Trust"
+MIN_IOS = 7  # oldest iOS whose lockdown pairing flow is handled
 
 # Same record, saved under the names each popular app expects.
 OUTPUT_NAMES = (
@@ -63,8 +65,22 @@ class Device:
 
     @property
     def title(self) -> str:
-        name = self.name or self.model or "iPhone"
+        name = self.name or self.model_name
         return f"{name}  (iOS {self.ios})" if self.ios else name
+
+    @property
+    def model_name(self) -> str:
+        for known in IRECV_DEVICES:
+            if known.product_type == self.model:
+                return known.display_name
+        return self.model or "iPhone"
+
+    @property
+    def supported(self) -> bool:
+        try:
+            return int(self.ios.split(".")[0]) >= MIN_IOS
+        except ValueError:
+            return True  # version unknown: let pairing try
 
 
 @dataclass
@@ -139,8 +155,13 @@ def _safe_name(text: str) -> str:
 
 def write_pairing_files(record: dict, device: Device, out_root: Path) -> PairResult:
     stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    folder = out_root / f"{_safe_name(device.name)}_{stamp}"
-    folder.mkdir(parents=True, exist_ok=True)
+    base = f"{_safe_name(device.name)}_{stamp}"
+    folder = out_root / base
+    n = 2
+    while folder.exists():
+        folder = out_root / f"{base}_{n}"
+        n += 1
+    folder.mkdir(parents=True)
     data = plistlib.dumps(record, fmt=plistlib.FMT_XML)
     result = PairResult(device=device, folder=folder)
     for pattern, app in OUTPUT_NAMES:
